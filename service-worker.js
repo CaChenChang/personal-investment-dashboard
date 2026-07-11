@@ -1,4 +1,4 @@
-const CACHE_NAME = 'investment-dashboard-v3';
+const CACHE_NAME = 'investment-dashboard-v4';
 const APP_ASSETS = [
   './',
   './index.html',

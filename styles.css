@@ -848,3 +848,42 @@ button:focus {
     font-size: 13px;
   }
 }
+
+
+.chart-timeline {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+
+/* Mobile tab grid reset */
+@media (max-width: 680px) {
+  .nav-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .nav-tab {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 6px;
+    font-size: 13px;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .nav-tab:hover,
+  .nav-tab.active {
+    transform: none;
+  }
+
+  .chart-timeline {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+}

@@ -72,6 +72,7 @@ const els = {
   clearAlphaVantageKeyBtn: document.querySelector("#clearAlphaVantageKeyBtn"),
   usDataStatus: document.querySelector("#usDataStatus"),
   assetChart: document.querySelector("#assetChart"),
+  assetChartTimeline: document.querySelector("#assetChartTimeline"),
   allocationChart: document.querySelector("#allocationChart"),
   allocationList: document.querySelector("#allocationList"),
 };
@@ -901,7 +902,9 @@ function renderAccounts() {
 }
 
 function renderCharts(portfolio) {
-  drawLineChart(els.assetChart, buildSnapshotSeries(portfolio));
+  const assetSeries = buildSnapshotSeries(portfolio);
+  drawLineChart(els.assetChart, assetSeries);
+  renderAssetChartTimeline(assetSeries);
   drawAllocationChart(els.allocationChart, portfolio.equityValue, portfolio.cash);
 
   const total = portfolio.equityValue + portfolio.cash;
@@ -994,7 +997,8 @@ function calculatePortfolio() {
 function buildSnapshotSeries(portfolio) {
   const snapshots = [...state.snapshots];
   snapshots.push({
-    date: "目前",
+    date: new Date().toISOString().slice(0, 10),
+    label: "目前",
     equityValue: portfolio.equityValue,
     totalAssets: portfolio.totalAssets,
   });
@@ -1007,7 +1011,7 @@ function drawLineChart(canvas, data) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
 
-  const pad = width < 520 ? { top: 18, right: 18, bottom: 42, left: 66 } : { top: 20, right: 30, bottom: 44, left: 86 };
+  const pad = width < 520 ? { top: 18, right: 18, bottom: 66, left: 66 } : { top: 20, right: 30, bottom: 64, left: 86 };
   const values = data.flatMap((item) => [item.totalAssets, item.equityValue]);
   const rawMin = Math.min(...values);
   const rawMax = Math.max(...values);
@@ -1016,6 +1020,7 @@ function drawLineChart(canvas, data) {
   const max = rawMax + spread * 0.25;
 
   drawGrid(ctx, width, height, pad, min, max);
+  drawTimeAxis(ctx, data, pad, width, height);
   drawSeries(ctx, data, "totalAssets", "#101010", pad, min, max, width, height);
   drawSeries(ctx, data, "equityValue", "#ffd400", pad, min, max, width, height);
   drawLegend(ctx, [
@@ -1038,6 +1043,55 @@ function drawGrid(ctx, width, height, pad, min, max) {
     ctx.stroke();
     ctx.fillText(shortMoney(value), 12, y + 4);
   }
+}
+
+function drawTimeAxis(ctx, data, pad, width, height) {
+  if (!data.length) return;
+  const plotWidth = width - pad.left - pad.right;
+  const axisY = height - pad.bottom + 18;
+  const candidateIndexes = width < 520
+    ? [0, data.length - 1]
+    : [0, Math.floor((data.length - 1) / 2), data.length - 1];
+  const indexes = [...new Set(candidateIndexes)].filter((index) => index >= 0 && index < data.length);
+  ctx.save();
+  ctx.strokeStyle = "#c9c5b8";
+  ctx.fillStyle = "#5f5c52";
+  ctx.lineWidth = 1;
+  ctx.font = width < 520 ? "11px Arial" : "12px Arial";
+  ctx.textAlign = "center";
+  indexes.forEach((index) => {
+    const x = pad.left + (plotWidth * index) / Math.max(data.length - 1, 1);
+    ctx.beginPath();
+    ctx.moveTo(x, height - pad.bottom);
+    ctx.lineTo(x, height - pad.bottom + 6);
+    ctx.stroke();
+    ctx.fillText(chartDateLabel(data[index]), x, axisY);
+  });
+  ctx.restore();
+}
+
+function chartDateLabel(item) {
+  if (item.label) return item.label;
+  const raw = String(item.date || "");
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return `${match[2]}/${match[3]}`;
+  return raw || "-";
+}
+
+function chartFullDateLabel(item) {
+  if (item.label && item.date) return `${item.label} ${item.date}`;
+  return item.date || item.label || "-";
+}
+
+function renderAssetChartTimeline(data) {
+  if (!els.assetChartTimeline) return;
+  if (!data.length) {
+    els.assetChartTimeline.textContent = "時間軸：尚無資料";
+    return;
+  }
+  const first = data[0];
+  const last = data[data.length - 1];
+  els.assetChartTimeline.textContent = `時間軸：${chartFullDateLabel(first)} - ${chartFullDateLabel(last)}`;
 }
 
 function drawSeries(ctx, data, key, color, pad, min, max, width, height) {

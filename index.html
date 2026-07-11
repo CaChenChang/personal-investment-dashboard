@@ -42,8 +42,6 @@
             <h2 id="viewTitle">總覽</h2>
           </div>
           <div class="topbar-actions">
-            <span id="priceUpdateStatus" class="status-pill">行情尚未更新</span>
-            <button id="refreshPricesBtn" class="ghost-btn" type="button">更新台股行情</button>
             <button id="exportBtn" class="primary-btn" type="button">匯出備份</button>
           </div>
         </header>
@@ -186,7 +184,7 @@
                 <h3>新增交易</h3>
               </div>
             </div>
-            <p class="info-strip">交易是每一次買進、賣出、股利、入金或出金的流水帳；持股會由這些紀錄自動計算。</p>
+            <p class="info-strip">交易是唯一的資產流水來源。扣/入帳帳戶會決定買進從哪裡扣款、賣出或股利入到哪個帳戶。</p>
             <form id="transactionForm" class="form-grid transaction-form">
               <label>日期<input name="date" type="date" required /></label>
               <label>類型
@@ -208,7 +206,7 @@
               </label>
               <label>標的<input name="instrumentQuery" id="transactionInstrumentQuery" placeholder="輸入 4958 或 臻鼎KY" autocomplete="off" /></label>
               <input name="instrumentId" id="transactionInstrument" type="hidden" />
-              <label>現金帳戶<select name="accountId" id="transactionAccount"></select></label>
+              <label>扣/入帳帳戶<select name="accountId" id="transactionAccount"></select></label>
               <label>股數<input name="shares" type="number" min="0" step="1" placeholder="1000" /></label>
               <label>價格<input name="price" type="number" min="0" step="0.01" placeholder="600" /></label>
               <label>費用<input name="fee" type="number" min="0" step="1" value="0" /></label>
@@ -300,6 +298,11 @@
                 <h3>手動更新現價</h3>
               </div>
             </div>
+            <div class="data-actions market-refresh-actions">
+              <span id="priceUpdateStatus" class="status-pill">行情尚未更新</span>
+              <button id="refreshPricesBtn" class="ghost-btn" type="button">更新台股行情</button>
+            </div>
+            <p class="help-text">這裡集中處理行情更新；日常查看總覽、持股、交易與現金時不再固定顯示行情按鈕。</p>
             <form id="priceForm" class="form-grid">
               <label>標的<select name="instrumentId" id="priceInstrument"></select></label>
               <label>現價<input name="price" type="number" min="0" step="0.01" required /></label>

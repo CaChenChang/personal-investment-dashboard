@@ -637,3 +637,40 @@ button:focus {
     font-size: 23px;
   }
 }
+
+
+.position-actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.position-actions .icon-btn {
+  min-height: 34px;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.position-save-btn {
+  background: var(--accent-soft);
+}
+
+.table-input.position-input {
+  width: 96px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 2px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.editing-row {
+  background: #fffdf0;
+}
+
+.market-refresh-actions {
+  margin-bottom: 10px;
+}

@@ -24,6 +24,7 @@ let instrumentDirectory = loadInstrumentDirectory();
 let usSymbolCache = loadUsSymbolCache();
 let settings = loadSettings();
 let editingAccountId = "";
+let editingPositionId = "";
 let latestPortfolio = null;
 let instrumentAutofillRequestId = 0;
 let transactionLookupRequestId = 0;
@@ -607,7 +608,7 @@ async function ensureInstrumentForTransaction(instrumentId, query, marketHint) {
 }
 
 function needsInstrument(type) {
-  return ["buy", "sell", "dividend"].includes(type);
+  return ["buy", "sell", "dividend", "adjustment"].includes(type);
 }
 
 function findOrCreateInstrument(instrument) {
@@ -794,21 +795,31 @@ function renderPositions(portfolio) {
 }
 
 function positionRow(position) {
+  const isEditing = editingPositionId === position.id;
   const clearButton = position.shares > 0
     ? `<button class="icon-btn position-clear-btn" type="button" onclick="clearPosition('${position.id}')">清空</button>`
     : `<span class="muted-action">已清空</span>`;
+  const actions = isEditing
+    ? `<div class="position-actions"><button class="icon-btn position-save-btn" type="button" onclick="savePositionEdit('${position.id}')">儲存</button><button class="icon-btn" type="button" onclick="cancelPositionEdit()">取消</button></div>`
+    : `<div class="position-actions"><button class="icon-btn" type="button" onclick="editPosition('${position.id}')">編輯</button>${clearButton}</div>`;
+  const sharesCell = isEditing
+    ? `<input id="editPositionShares-${position.id}" class="table-input position-input" type="number" min="0" step="1" value="${position.shares}" />`
+    : int(position.shares);
+  const avgCostCell = isEditing
+    ? `<input id="editPositionAvgCost-${position.id}" class="table-input position-input" type="number" min="0" step="0.01" value="${position.avgCost.toFixed(2)}" />`
+    : money(position.avgCost, position.currency);
   return `
-    <tr>
+    <tr class="${isEditing ? "editing-row" : ""}">
       <td>${position.symbol}</td>
       <td>${position.name}</td>
-      <td>${int(position.shares)}</td>
+      <td>${sharesCell}</td>
       <td>${money(position.cost, position.currency)}</td>
-      <td>${money(position.avgCost, position.currency)}</td>
+      <td>${avgCostCell}</td>
       <td>${money(position.price, position.currency)}</td>
       <td>${money(position.marketValue, position.currency)}</td>
       <td class="${classByValue(position.unrealized)}">${money(position.unrealized, position.currency)}</td>
       <td class="${classByValue(position.unrealized)}">${percent(position.unrealizedPct)}</td>
-      <td>${clearButton}</td>
+      <td>${actions}</td>
     </tr>
   `;
 }
@@ -921,6 +932,11 @@ function calculatePortfolio() {
     if (tx.type === "buy") {
       current.shares += tx.shares;
       current.cost += gross + tx.fee + tx.tax;
+    }
+
+    if (tx.type === "adjustment") {
+      current.shares = tx.shares;
+      current.cost = tx.shares * tx.price;
     }
 
     if (tx.type === "sell" && current.shares > 0) {
@@ -1302,6 +1318,54 @@ function deleteAccount(id) {
   commit();
 }
 
+function editPosition(instrumentId) {
+  editingPositionId = instrumentId;
+  render();
+}
+
+function cancelPositionEdit() {
+  editingPositionId = "";
+  render();
+}
+
+function savePositionEdit(instrumentId) {
+  const position = calculatePortfolio().positions.find((item) => item.id === instrumentId);
+  const instrument = state.instruments.find((item) => item.id === instrumentId);
+  if (!position || !instrument) {
+    alert("找不到這個標的，請重新整理後再試一次。");
+    return;
+  }
+
+  const sharesInput = document.querySelector(`#editPositionShares-${instrumentId}`);
+  const avgCostInput = document.querySelector(`#editPositionAvgCost-${instrumentId}`);
+  const shares = number(sharesInput?.value);
+  const avgCost = number(avgCostInput?.value);
+  if (!Number.isFinite(shares) || !Number.isFinite(avgCost) || shares < 0 || avgCost < 0) {
+    alert("請輸入有效的持有股數與股票均價。");
+    return;
+  }
+  if (!Number.isInteger(shares)) {
+    alert("持有股數請輸入整數。");
+    return;
+  }
+
+  state.transactions.push({
+    id: uid("tx"),
+    date: new Date().toISOString().slice(0, 10),
+    type: "adjustment",
+    instrumentId,
+    accountId: "",
+    shares,
+    price: avgCost,
+    fee: 0,
+    tax: 0,
+    cashAmount: 0,
+    note: "手動調整持股股數與均價",
+  });
+  editingPositionId = "";
+  commit();
+}
+
 function clearPosition(instrumentId) {
   const portfolio = calculatePortfolio();
   const position = portfolio.positions.find((item) => item.id === instrumentId);
@@ -1466,6 +1530,7 @@ function typeLabel(type) {
     deposit: "入金",
     withdraw: "出金",
     fee: "費用",
+    adjustment: "持股調整",
   }[type];
 }
 
@@ -1491,6 +1556,9 @@ function emptyRow(cols) {
 
 window.deleteTransaction = deleteTransaction;
 window.deleteAccount = deleteAccount;
+window.editPosition = editPosition;
+window.cancelPositionEdit = cancelPositionEdit;
+window.savePositionEdit = savePositionEdit;
 window.clearPosition = clearPosition;
 window.editAccount = editAccount;
 window.cancelAccountEdit = cancelAccountEdit;

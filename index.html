@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffd400" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="????" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <title>個人理財戰情儀表板</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">PF</span>
+          <div>
+            <h1>個人理財戰情儀表板</h1>
+            <p>台股資產與績效管理</p>
+          </div>
+        </div>
+        <nav class="nav-tabs" aria-label="主要頁籤">
+          <button class="nav-tab active" data-view="dashboard">總覽</button>
+          <button class="nav-tab" data-view="positions">持股</button>
+          <button class="nav-tab" data-view="transactions">交易</button>
+          <button class="nav-tab" data-view="cash">現金</button>
+          <button class="nav-tab" data-view="data">設定</button>
+        </nav>
+        <section class="sidebar-panel">
+          <p class="label">資料時間</p>
+          <strong id="lastUpdated">尚未更新</strong>
+          <span id="storageStatus">本機儲存已啟用</span>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Portfolio Command Center</p>
+            <h2 id="viewTitle">總覽</h2>
+          </div>
+          <div class="topbar-actions">
+            <span id="priceUpdateStatus" class="status-pill">行情尚未更新</span>
+            <button id="refreshPricesBtn" class="ghost-btn" type="button">更新台股行情</button>
+            <button id="exportBtn" class="primary-btn" type="button">匯出備份</button>
+          </div>
+        </header>
+
+        <section id="dashboard" class="view active">
+          <div class="metric-grid">
+            <article class="metric-card">
+              <p>總資產</p>
+              <strong id="metricTotalAssets">$0</strong>
+              <span id="metricDayChange">今日變化 $0</span>
+            </article>
+            <article class="metric-card">
+              <p>股票市值</p>
+              <strong id="metricEquityValue">$0</strong>
+              <span id="metricEquityWeight">配置 0%</span>
+            </article>
+            <article class="metric-card">
+              <p>現金</p>
+              <strong id="metricCash">$0</strong>
+              <span id="metricCashWeight">配置 0%</span>
+            </article>
+            <article class="metric-card">
+              <p>未實現損益</p>
+              <strong id="metricUnrealized">$0</strong>
+              <span id="metricUnrealizedPct">0%</span>
+            </article>
+          </div>
+
+          <div class="dashboard-layout">
+            <section class="panel chart-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="label">資產趨勢</p>
+                  <h3>總資產與股票市值</h3>
+                </div>
+                <span>Google Sheets 歷史資料種子</span>
+              </div>
+              <canvas id="assetChart" width="920" height="360" aria-label="資產趨勢圖"></canvas>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="label">配置比例</p>
+                  <h3>股票 / 現金</h3>
+                </div>
+              </div>
+              <div class="allocation">
+                <canvas id="allocationChart" width="260" height="260" aria-label="配置比例圖"></canvas>
+                <div class="allocation-list" id="allocationList"></div>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">重點標的</p>
+                <h3>持股損益排名</h3>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>代號</th>
+                    <th>名稱</th>
+                    <th>股數</th>
+                    <th>均價</th>
+                    <th>現價</th>
+                    <th>市值</th>
+                    <th>未實現損益</th>
+                    <th>配置</th>
+                  </tr>
+                </thead>
+                <tbody id="topPositionsBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="positions" class="view">
+          <section class="panel form-panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">標的管理</p>
+                <h3>新增台股 / ETF</h3>
+              </div>
+            </div>
+            <p class="info-strip">輸入股票代號或公司名稱任一項，系統會嘗試自動補上另一項與市場。找不到時仍可手動建立。</p>
+            <form id="instrumentForm" class="form-grid">
+              <label>代號<input name="symbol" id="instrumentSymbolInput" required placeholder="2330" autocomplete="off" /></label>
+              <label>名稱<input name="name" id="instrumentNameInput" required placeholder="台積電" autocomplete="off" /></label>
+              <label>市場
+                <select name="market" id="instrumentMarketSelect">
+                  <option value="TWSE">TWSE</option>
+                  <option value="TPEx">TPEx</option>
+                  <option value="US">US</option>
+                </select>
+              </label>
+              <button class="primary-btn" type="submit">新增標的</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">Holdings</p>
+                <h3>目前持股</h3>
+              </div>
+            </div>
+            <p class="info-strip">持股是系統根據交易流水計算出的目前庫存、平均成本、市值與損益，不是單筆交易紀錄。</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>代號</th>
+                    <th>名稱</th>
+                    <th>股數</th>
+                    <th>成本</th>
+                    <th>均價</th>
+                    <th>現價</th>
+                    <th>市值</th>
+                    <th>損益</th>
+                    <th>損益率</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="positionsBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="transactions" class="view">
+          <section class="panel form-panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">紀錄</p>
+                <h3>新增交易</h3>
+              </div>
+            </div>
+            <p class="info-strip">交易是每一次買進、賣出、股利、入金或出金的流水帳；持股會由這些紀錄自動計算。</p>
+            <form id="transactionForm" class="form-grid transaction-form">
+              <label>日期<input name="date" type="date" required /></label>
+              <label>類型
+                <select name="type" required>
+                  <option value="buy">買進</option>
+                  <option value="sell">賣出</option>
+                  <option value="dividend">股利</option>
+                  <option value="deposit">入金</option>
+                  <option value="withdraw">出金</option>
+                  <option value="fee">費用</option>
+                </select>
+              </label>
+              <label>市場
+                <select name="market" id="transactionMarketSelect">
+                  <option value="TWSE">TWSE</option>
+                  <option value="TPEx">TPEx</option>
+                  <option value="US">US</option>
+                </select>
+              </label>
+              <label>標的<input name="instrumentQuery" id="transactionInstrumentQuery" placeholder="輸入 4958 或 臻鼎KY" autocomplete="off" /></label>
+              <input name="instrumentId" id="transactionInstrument" type="hidden" />
+              <label>現金帳戶<select name="accountId" id="transactionAccount"></select></label>
+              <label>股數<input name="shares" type="number" min="0" step="1" placeholder="1000" /></label>
+              <label>價格<input name="price" type="number" min="0" step="0.01" placeholder="600" /></label>
+              <label>費用<input name="fee" type="number" min="0" step="1" value="0" /></label>
+              <label>稅額<input name="tax" type="number" min="0" step="1" value="0" /></label>
+              <label>現金金額<input name="cashAmount" type="number" min="0" step="1" placeholder="入金/股利用" /></label>
+              <label>備註<input name="note" placeholder="策略、原因或券商" /></label>
+              <button class="primary-btn" type="submit">新增紀錄</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">Ledger</p>
+                <h3>交易流水</h3>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>類型</th>
+                    <th>標的</th>
+                    <th>帳戶</th>
+                    <th>股數</th>
+                    <th>價格</th>
+                    <th>費稅</th>
+                    <th>現金</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="transactionsBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="cash" class="view">
+          <section class="panel form-panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">現金帳戶</p>
+                <h3>新增帳戶</h3>
+              </div>
+            </div>
+            <form id="accountForm" class="form-grid">
+              <label>名稱<input name="name" required placeholder="國泰銀行" /></label>
+              <label>類型
+                <select name="type">
+                  <option value="bank">銀行</option>
+                  <option value="broker">券商</option>
+                  <option value="cash">現金</option>
+                </select>
+              </label>
+              <label>餘額<input name="balance" type="number" step="1" required placeholder="100000" /></label>
+              <button class="primary-btn" type="submit">新增帳戶</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">Cash</p>
+                <h3>帳戶餘額</h3>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>名稱</th>
+                    <th>類型</th>
+                    <th>餘額</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="accountsBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="data" class="view">
+          <section class="panel form-panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">行情</p>
+                <h3>手動更新現價</h3>
+              </div>
+            </div>
+            <form id="priceForm" class="form-grid">
+              <label>標的<select name="instrumentId" id="priceInstrument"></select></label>
+              <label>現價<input name="price" type="number" min="0" step="0.01" required /></label>
+              <label>漲跌幅 %<input name="changePct" type="number" step="0.01" value="0" /></label>
+              <button class="primary-btn" type="submit">更新價格</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">標的資料庫</p>
+                <h3>台股代號 / 公司名稱補全</h3>
+              </div>
+              <span id="directoryStatus">尚未載入</span>
+            </div>
+            <div class="data-actions">
+              <button id="refreshDirectoryBtn" class="ghost-btn" type="button">重新整理標的資料庫</button>
+            </div>
+            <p class="help-text" id="directoryHelp">系統會快取上市與上櫃標的清單，讓新增標的或交易時可以用代號或公司名稱互相補全。</p>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">美股資料源</p>
+                <h3>Alpha Vantage API Key</h3>
+              </div>
+              <span id="usDataStatus">尚未啟用</span>
+            </div>
+            <form id="alphaVantageForm" class="form-grid">
+              <label>API Key<input name="apiKey" id="alphaVantageKeyInput" type="password" autocomplete="off" placeholder="貼上 Alpha Vantage API key" /></label>
+              <button class="primary-btn" type="submit">儲存 API Key</button>
+              <button id="clearAlphaVantageKeyBtn" class="ghost-btn" type="button">清除</button>
+            </form>
+            <p class="help-text">美股代號搜尋與價格更新會使用 Alpha Vantage。API key 只會存在此瀏覽器的本機儲存空間。</p>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">備份</p>
+                <h3>資料匯入 / 匯出</h3>
+              </div>
+            </div>
+            <div class="data-actions">
+              <button id="importBtn" class="ghost-btn" type="button">匯入備份</button>
+              <button id="resetBtn" class="danger-btn" type="button">重設範例資料</button>
+              <input id="importFile" type="file" accept="application/json" hidden />
+            </div>
+            <p class="help-text">目前資料存在瀏覽器本機儲存。長期版本會升級為 SQLite，本頁的備份 JSON 可作為過渡資料。</p>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <template id="emptyRowTemplate">
+      <tr>
+        <td colspan="9" class="empty-cell">尚無資料，先新增帳戶、標的或交易紀錄。</td>
+      </tr>
+    </template>
+
+    <script src="./tw-directory.js"></script>
+    <script src="./app.js"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,5 @@
+# Private portfolio data should never be committed
+*-backup*.json
+private-backups/
+*-private-backups/
+.env

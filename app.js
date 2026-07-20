@@ -20,6 +20,25 @@ const FALLBACK_DIRECTORY = [
   { symbol: "00685L", name: "群益臺灣加權正2", market: "TWSE", aliases: ["群益台灣加權正2"] },
 ];
 
+const INSTRUMENT_GROUPS = ["AI 與權值股","載板","記憶體","被動元件","功率元件","未分類"];
+const DEFAULT_GROUP_BY_SYMBOL = {
+  "2330": "AI 與權值股",
+  "0050": "AI 與權值股",
+  "00631L": "AI 與權值股",
+  "00685L": "AI 與權值股",
+  "009816": "AI 與權值股",
+  "3037": "載板",
+  "3189": "載板",
+  "4958": "載板",
+  "8046": "載板",
+  "2344": "記憶體",
+  "2408": "記憶體",
+  "2327": "被動元件",
+  "2375": "被動元件",
+  "6173": "被動元件",
+  "8261": "功率元件",
+};
+
 let instrumentDirectory = loadInstrumentDirectory();
 let usSymbolCache = loadUsSymbolCache();
 let settings = loadSettings();
@@ -62,6 +81,7 @@ const els = {
   instrumentSymbolInput: document.querySelector("#instrumentSymbolInput"),
   instrumentNameInput: document.querySelector("#instrumentNameInput"),
   instrumentMarketSelect: document.querySelector("#instrumentMarketSelect"),
+  instrumentGroupSelect: document.querySelector("#instrumentGroupSelect"),
   transactionMarketSelect: document.querySelector("#transactionMarketSelect"),
   transactionInstrumentQuery: document.querySelector("#transactionInstrumentQuery"),
   transactionInstrument: document.querySelector("#transactionInstrument"),
@@ -75,6 +95,7 @@ const els = {
   assetChartTimeline: document.querySelector("#assetChartTimeline"),
   allocationChart: document.querySelector("#allocationChart"),
   allocationList: document.querySelector("#allocationList"),
+  groupAllocationList: document.querySelector("#groupAllocationList"),
 };
 
 document.querySelectorAll(".nav-tab").forEach((button) => {
@@ -98,6 +119,7 @@ document.querySelector("#instrumentForm").addEventListener("submit", async (even
     name,
     market,
     currency: currencyForMarket(market),
+    group: normalizeInstrumentGroup(data.group || defaultInstrumentGroup(symbol)),
   });
   event.currentTarget.reset();
   commit();
@@ -195,14 +217,29 @@ refreshTwsePrices({ silent: true });
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return structuredClone(seedState);
+  if (!saved) return normalizeState(structuredClone(seedState));
   try {
     const parsed = JSON.parse(saved);
-    if (shouldReplaceOldSample(parsed)) return structuredClone(seedState);
-    return { ...structuredClone(seedState), ...parsed };
+    if (shouldReplaceOldSample(parsed)) return normalizeState(structuredClone(seedState));
+    return normalizeState({ ...structuredClone(seedState), ...parsed });
   } catch {
-    return structuredClone(seedState);
+    return normalizeState(structuredClone(seedState));
   }
+}
+
+function normalizeState(next) {
+  const normalized = { ...structuredClone(seedState), ...(next || {}) };
+  normalized.accounts = Array.isArray(normalized.accounts) ? normalized.accounts : [];
+  normalized.instruments = Array.isArray(normalized.instruments)
+    ? normalized.instruments.map((instrument) => ({
+      ...instrument,
+      group: normalizeInstrumentGroup(instrument.group || defaultInstrumentGroup(instrument.symbol)),
+    }))
+    : [];
+  normalized.transactions = Array.isArray(normalized.transactions) ? normalized.transactions : [];
+  normalized.prices = normalized.prices && typeof normalized.prices === "object" ? normalized.prices : {};
+  normalized.snapshots = Array.isArray(normalized.snapshots) ? normalized.snapshots : [];
+  return normalized;
 }
 
 function loadInstrumentDirectory() {
@@ -543,11 +580,15 @@ function renderSelectors() {
     ...state.instruments.map((item) => `<option value="${item.id}">${item.symbol} ${item.name}</option>`),
   ].join("");
   const accountOptions = [
-    `<option value="">不指定</option>`,
+    `<option value="">???</option>`,
     ...state.accounts.map((item) => `<option value="${item.id}">${item.name}</option>`),
   ].join("");
   els.priceInstrument.innerHTML = instrumentOptions;
   els.transactionAccount.innerHTML = accountOptions;
+  if (els.instrumentGroupSelect) {
+    const selected = els.instrumentGroupSelect.value || "未分類";
+    els.instrumentGroupSelect.innerHTML = groupOptions(selected);
+  }
   renderDirectoryStatus();
 }
 
@@ -572,6 +613,7 @@ async function autofillInstrumentForm(source) {
     els.instrumentSymbolInput.value = resolved.symbol;
   }
   els.instrumentMarketSelect.value = resolved.market;
+  if (els.instrumentGroupSelect) els.instrumentGroupSelect.value = defaultInstrumentGroup(resolved.symbol);
   if (els.directoryHelp) els.directoryHelp.textContent = `已補全 ${resolved.symbol} ${resolved.name}（${marketLabel(resolved.market)}）。`;
 }
 
@@ -614,13 +656,17 @@ function needsInstrument(type) {
 
 function findOrCreateInstrument(instrument) {
   const existing = state.instruments.find((item) => item.symbol === instrument.symbol && item.market === instrument.market);
-  if (existing) return existing;
+  if (existing) {
+    existing.group = normalizeInstrumentGroup(existing.group || defaultInstrumentGroup(existing.symbol));
+    return existing;
+  }
   const created = {
     id: uid("ins"),
     symbol: instrument.symbol,
     name: instrument.name,
     market: instrument.market,
     currency: instrument.currency || currencyForMarket(instrument.market),
+    group: normalizeInstrumentGroup(instrument.group || defaultInstrumentGroup(instrument.symbol)),
   };
   state.instruments.push(created);
   return created;
@@ -786,13 +832,35 @@ function renderMetrics(portfolio) {
 
 function renderPositions(portfolio) {
   const sorted = [...portfolio.positions].sort((a, b) => b.marketValue - a.marketValue);
-  const rows = sorted
-    .sort((a, b) => b.marketValue - a.marketValue)
-    .map(positionRow)
-    .join("");
+  const rows = groupPositions(sorted);
   const topRows = sorted.map((position) => topPositionRow(position, portfolio.totalAssets)).join("");
-  els.positionsBody.innerHTML = rows || emptyRow(10);
+  els.positionsBody.innerHTML = rows || emptyRow(11);
   els.topPositionsBody.innerHTML = topRows || emptyRow(8);
+}
+
+function groupPositions(positions) {
+  return INSTRUMENT_GROUPS.map((group) => {
+    const items = positions
+      .filter((position) => normalizeInstrumentGroup(position.group) === group)
+      .sort((a, b) => b.marketValue - a.marketValue);
+    if (!items.length) return "";
+    const summary = summarizeGroup(items);
+    return `
+      <tr class="group-row">
+        <td colspan="11">
+          <div class="group-row-summary">
+            <strong>${group}</strong>
+            <span>持股檔數 ${summary.count}</span>
+            <span>市值 ${money(summary.marketValue)}</span>
+            <span>成本 ${money(summary.cost)}</span>
+            <span class="${classByValue(summary.unrealized)}">未實現損益 ${money(summary.unrealized)}</span>
+            <span class="${classByValue(summary.unrealized)}">損益率 ${percent(summary.unrealizedPct)}</span>
+          </div>
+        </td>
+      </tr>
+      ${items.map(positionRow).join("")}
+    `;
+  }).join("");
 }
 
 function positionRow(position) {
@@ -813,6 +881,11 @@ function positionRow(position) {
     <tr class="${isEditing ? "editing-row" : ""}">
       <td>${position.symbol}</td>
       <td>${position.name}</td>
+      <td>
+        <select class="group-select" onchange="updateInstrumentGroup('${position.id}', this.value)">
+          ${groupOptions(position.group)}
+        </select>
+      </td>
       <td>${sharesCell}</td>
       <td>${money(position.cost, position.currency)}</td>
       <td>${avgCostCell}</td>
@@ -921,6 +994,7 @@ function renderCharts(portfolio) {
       `,
     )
     .join("");
+  renderGroupAllocation(calculateGroupSummary(portfolio.positions.filter((position) => position.currency === "TWD")), portfolio.equityValue);
 }
 
 function calculatePortfolio() {
@@ -960,11 +1034,13 @@ function calculatePortfolio() {
   const positions = state.instruments
     .map((instrument) => {
       const holding = book.get(instrument.id) || { shares: 0, cost: 0 };
+      instrument.group = normalizeInstrumentGroup(instrument.group || defaultInstrumentGroup(instrument.symbol));
       const quote = state.prices[instrument.symbol] || { price: 0, changePct: 0 };
       const marketValue = holding.shares * quote.price;
       const unrealized = marketValue - holding.cost;
       return {
         ...instrument,
+        group: normalizeInstrumentGroup(instrument.group || defaultInstrumentGroup(instrument.symbol)),
         shares: holding.shares,
         cost: holding.cost,
         currency: instrument.currency || currencyForMarket(instrument.market),
@@ -992,6 +1068,65 @@ function calculatePortfolio() {
     unrealized,
     realized,
   };
+}
+
+function calculateGroupSummary(positions) {
+  const summaries = INSTRUMENT_GROUPS.map((group) => {
+    const items = positions.filter((position) => normalizeInstrumentGroup(position.group) === group);
+    return { group, ...summarizeGroup(items) };
+  });
+  return summaries.filter((item) => item.marketValue > 0 || item.count > 0);
+}
+
+function summarizeGroup(items) {
+  const marketValue = items.reduce((sum, position) => sum + position.marketValue, 0);
+  const cost = items.reduce((sum, position) => sum + position.cost, 0);
+  const unrealized = items.reduce((sum, position) => sum + position.unrealized, 0);
+  return {
+    count: items.length,
+    marketValue,
+    cost,
+    unrealized,
+    unrealizedPct: cost ? unrealized / cost : 0,
+  };
+}
+
+function renderGroupAllocation(summaries, totalEquity) {
+  if (!els.groupAllocationList) return;
+  if (!summaries.length || !totalEquity) {
+    els.groupAllocationList.innerHTML = `<p class="help-text">尚無持股族群資料</p>`;
+    return;
+  }
+  els.groupAllocationList.innerHTML = summaries
+    .sort((a, b) => b.marketValue - a.marketValue)
+    .map((item, index) => {
+      const weight = totalEquity ? item.marketValue / totalEquity : 0;
+      return `
+        <div class="group-allocation-item">
+          <div class="group-allocation-main">
+            <strong>${item.group}</strong>
+            <span>${money(item.marketValue)} ? ${percent(weight)} ? 持股檔數 ${item.count}</span>
+          </div>
+          <div class="group-allocation-bar" aria-hidden="true">
+            <i style="width:${Math.max(2, weight * 100)}%; --bar-index:${index}"></i>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function groupOptions(selectedGroup) {
+  const normalized = normalizeInstrumentGroup(selectedGroup);
+  return INSTRUMENT_GROUPS.map((group) => `<option value="${escapeAttr(group)}" ${group === normalized ? "selected" : ""}>${group}</option>`).join("");
+}
+
+function defaultInstrumentGroup(symbol) {
+  return DEFAULT_GROUP_BY_SYMBOL[String(symbol || "").trim().toUpperCase()] || "未分類";
+}
+
+function normalizeInstrumentGroup(group) {
+  return INSTRUMENT_GROUPS.includes(group) ? group : "未分類";
 }
 
 function buildSnapshotSeries(portfolio) {
@@ -1344,7 +1479,7 @@ function importBackup(event) {
   reader.onload = () => {
     try {
       const incoming = JSON.parse(reader.result);
-      state = { ...structuredClone(seedState), ...incoming };
+      state = normalizeState({ ...structuredClone(seedState), ...incoming });
       commit();
     } catch {
       alert("備份檔格式無法讀取。");
@@ -1356,7 +1491,7 @@ function importBackup(event) {
 
 function resetSeed() {
   if (!confirm("這會覆蓋目前本機資料，確定要重設嗎？")) return;
-  state = structuredClone(seedState);
+  state = normalizeState(structuredClone(seedState));
   commit();
 }
 
@@ -1369,6 +1504,13 @@ function deleteTransaction(id) {
 function deleteAccount(id) {
   if (!confirm("確定刪除這個帳戶嗎？")) return;
   state.accounts = state.accounts.filter((account) => account.id !== id);
+  commit();
+}
+
+function updateInstrumentGroup(instrumentId, group) {
+  const instrument = state.instruments.find((item) => item.id === instrumentId);
+  if (!instrument) return;
+  instrument.group = normalizeInstrumentGroup(group);
   commit();
 }
 
@@ -1613,6 +1755,7 @@ window.deleteAccount = deleteAccount;
 window.editPosition = editPosition;
 window.cancelPositionEdit = cancelPositionEdit;
 window.savePositionEdit = savePositionEdit;
+window.updateInstrumentGroup = updateInstrumentGroup;
 window.clearPosition = clearPosition;
 window.editAccount = editAccount;
 window.cancelAccountEdit = cancelAccountEdit;

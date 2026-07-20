@@ -81,7 +81,17 @@
               <div id="assetChartTimeline" class="chart-timeline">時間軸：尚無資料</div>
             </section>
 
-            <section class="panel">
+            <section class="panel group-allocation-panel">
+            <div class="panel-header">
+              <div>
+                <p class="label">族群配置</p>
+                <h3>股票市值按族群</h3>
+              </div>
+            </div>
+            <div id="groupAllocationList" class="group-allocation-list"></div>
+          </section>
+
+          <section class="panel">
               <div class="panel-header">
                 <div>
                   <p class="label">配置比例</p>
@@ -141,6 +151,16 @@
                   <option value="US">US</option>
                 </select>
               </label>
+              <label>族群
+                <select name="group" id="instrumentGroupSelect">
+                  <option value="AI 與權值股">AI 與權值股</option>
+                  <option value="載板">載板</option>
+                  <option value="記憶體">記憶體</option>
+                  <option value="被動元件">被動元件</option>
+                  <option value="功率元件">功率元件</option>
+                  <option value="未分類" selected>未分類</option>
+                </select>
+              </label>
               <button class="primary-btn" type="submit">新增標的</button>
             </form>
           </section>
@@ -159,6 +179,7 @@
                   <tr>
                     <th>代號</th>
                     <th>名稱</th>
+                    <th>族群</th>
                     <th>股數</th>
                     <th>成本</th>
                     <th>均價</th>

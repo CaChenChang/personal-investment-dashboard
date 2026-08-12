@@ -1331,62 +1331,155 @@ async function refreshAllPrices({ silent = false } = {}) {
     return;
   }
 
-  try {
-    setPriceStatus("更新行情中...");
-    const [twse, tpex, us] = await Promise.allSettled([
-      fetchTwsePriceRows(),
-      fetchTpexPriceRows(),
-      fetchUsPriceRows(),
-    ]);
-    const rows = [
-      ...(twse.status === "fulfilled" ? twse.value : []),
-      ...(tpex.status === "fulfilled" ? tpex.value : []),
-      ...(us.status === "fulfilled" ? us.value : []),
-    ];
-    const usSkipped = state.instruments.some((item) => item.market === "US") && !settings.alphaVantageApiKey;
-    if (!rows.length && usSkipped) {
-      setPriceStatus("美股需先設定 Alpha Vantage API key；台股目前沒有可用行情");
-      if (!silent) alert("美股需先設定 Alpha Vantage API key。台股功能不受影響。");
-      return;
-    }
-    if (!rows.length) throw new Error("No price rows");
-    const bySymbol = new Map(rows.map((row) => [`${row.market || ""}:${String(row.symbol).toUpperCase()}`, row]));
-    let updated = 0;
+  setPriceStatus("更新行情中…");
+  const [twse, tpex, us] = await Promise.allSettled([
+    fetchTwsePriceRows(),
+    fetchTpexPriceRows(),
+    fetchUsPriceRows(),
+  ]);
+  const bySymbol = new Map();
+  addPriceRows(bySymbol, twse.status === "fulfilled" ? twse.value : []);
+  addPriceRows(bySymbol, tpex.status === "fulfilled" ? tpex.value : []);
+  addPriceRows(bySymbol, us.status === "fulfilled" ? us.value : []);
 
-    for (const instrument of instruments) {
-      const row = bySymbol.get(`${instrument.market}:${instrument.symbol}`);
-      if (!row) continue;
-      const close = number(row.close);
-      const changePct = number(row.changePct || 0);
-      if (!close) continue;
-      state.prices[instrument.symbol] = {
-        price: close,
-        changePct,
-        source: row.source,
-        updatedAt: new Date().toISOString(),
-      };
-      updated += 1;
-    }
+  const missingTaiwanInstruments = instruments.filter(
+    (instrument) => ["TWSE", "TPEx"].includes(instrument.market) && !bySymbol.has(priceKey(instrument)),
+  );
+  const fallbackRows = await fetchFallbackPriceRows(missingTaiwanInstruments);
+  addPriceRows(bySymbol, fallbackRows);
 
-    commit();
-    const skipped = instruments.length - updated;
-    const failedSources = [
-      twse.status === "rejected" ? "上市" : "",
-      tpex.status === "rejected" ? "上櫃" : "",
-      us.status === "rejected" ? "美股" : "",
-    ].filter(Boolean);
-    const details = [
-      skipped ? `跳過 ${skipped} 檔` : "",
-      usSkipped ? "美股需先設定 Alpha Vantage API key" : "",
-      failedSources.length ? `${failedSources.join("、")}資料源失敗` : "",
-    ].filter(Boolean);
-    const message = `已更新 ${updated} 檔，${formatDateTime(new Date().toISOString())}${details.length ? `；${details.join("；")}` : ""}`;
+  const usSkipped = state.instruments.some((item) => item.market === "US") && !settings.alphaVantageApiKey;
+  let updated = 0;
+  let retained = 0;
+  const now = new Date().toISOString();
+
+  for (const instrument of instruments) {
+    const row = bySymbol.get(priceKey(instrument));
+    const close = number(row?.close);
+    if (!close) {
+      retained += 1;
+      continue;
+    }
+    state.prices[instrument.symbol] = {
+      price: close,
+      changePct: number(row.changePct || 0),
+      source: row.source,
+      updatedAt: now,
+    };
+    updated += 1;
+  }
+
+  if (!updated) {
+    const existingPrices = instruments.filter((instrument) => number(state.prices[instrument.symbol]?.price)).length;
+    const message = existingPrices ? "未取得新行情，已保留既有價格；可稍後再試或手動更新現價" : "未取得可用行情，請稍後再試或手動更新現價";
     setPriceStatus(message);
     if (!silent) alert(message);
-  } catch {
-    setPriceStatus("行情更新失敗，保留既有價格");
-    if (!silent) alert("目前無法從公開資料更新行情。你仍可在設定頁手動更新現價。");
+    return;
   }
+
+  commit();
+  const failedSources = [
+    twse.status === "rejected" ? "上市" : "",
+    tpex.status === "rejected" ? "上櫃" : "",
+    us.status === "rejected" ? "美股" : "",
+  ].filter(Boolean);
+  const details = [
+    retained ? "保留" + " " + retained + " " + "檔既有價格" : "",
+    usSkipped ? "美股需先設定 Alpha Vantage API key" : "",
+    failedSources.length ? failedSources.join("\u3001") + "資料源失敗" : "",
+  ].filter(Boolean);
+  const message = "已更新" + " " + updated + " " + "檔" + "\uFF0C" + formatDateTime(now) + (details.length ? "\uFF1B" + details.join("\uFF1B") : "");
+  setPriceStatus(message);
+  if (!silent) alert(message);
+}
+
+function priceKey(instrument) {
+  return (instrument.market || "") + ":" + String(instrument.symbol || "").trim().toUpperCase();
+}
+
+function addPriceRows(target, rows) {
+  for (const row of rows || []) {
+    const symbol = String(row?.symbol || "").trim().toUpperCase();
+    const market = row?.market || "";
+    const close = number(row?.close);
+    if (!symbol || !market || !close) continue;
+    target.set(market + ":" + symbol, { ...row, symbol, market, close });
+  }
+}
+
+async function fetchFallbackPriceRows(instruments) {
+  if (!instruments.length) return [];
+  const results = await Promise.allSettled(instruments.map((instrument) => fetchTaiwanFallbackPriceRow(instrument)));
+  return results
+    .filter((result) => result.status === "fulfilled" && result.value)
+    .map((result) => result.value);
+}
+
+async function fetchTaiwanFallbackPriceRow(instrument) {
+  if (instrument.market === "TWSE") {
+    const official = await fetchTwseIndividualPriceRow(instrument).catch(() => null);
+    if (official) return official;
+  }
+  return fetchYahooChartPriceRow(instrument).catch(() => null);
+}
+
+async function fetchTwseIndividualPriceRow(instrument) {
+  const url = new URL("https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY");
+  url.searchParams.set("date", taipeiDateParam());
+  url.searchParams.set("stockNo", instrument.symbol);
+  url.searchParams.set("response", "json");
+  const response = await fetch(url);
+  if (!response.ok) return null;
+  const payload = await response.json();
+  const rows = Array.isArray(payload.data) ? payload.data : [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    const close = number(Array.isArray(row) ? row[6] : row?.ClosingPrice || row?.close);
+    if (!close) continue;
+    return {
+      symbol: instrument.symbol,
+      market: "TWSE",
+      close,
+      changePct: 0,
+      source: "TWSE STOCK_DAY latest",
+    };
+  }
+  return null;
+}
+
+async function fetchYahooChartPriceRow(instrument) {
+  const suffix = instrument.market === "TPEx" ? "TWO" : "TW";
+  const response = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/" + instrument.symbol + "." + suffix + "?range=7d&interval=1d");
+  if (!response.ok) return null;
+  const payload = await response.json();
+  const result = payload?.chart?.result?.[0];
+  const closes = result?.indicators?.quote?.[0]?.close || [];
+  let latestIndex = closes.length - 1;
+  while (latestIndex >= 0 && !number(closes[latestIndex])) latestIndex -= 1;
+  if (latestIndex < 0) return null;
+  let previousIndex = latestIndex - 1;
+  while (previousIndex >= 0 && !number(closes[previousIndex])) previousIndex -= 1;
+  const close = number(closes[latestIndex]);
+  const previousClose = previousIndex >= 0 ? number(closes[previousIndex]) : 0;
+  return {
+    symbol: instrument.symbol,
+    market: instrument.market,
+    close,
+    changePct: previousClose ? (close - previousClose) / previousClose : 0,
+    source: "Yahoo Finance latest close",
+  };
+}
+
+function taipeiDateParam(date = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Taipei",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date).map((part) => [part.type, part.value]),
+  );
+  return parts.year + parts.month + parts.day;
 }
 
 async function fetchUsPriceRows() {
